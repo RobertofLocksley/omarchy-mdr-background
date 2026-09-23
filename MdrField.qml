@@ -81,6 +81,7 @@ Item {
   property real zoff: 0
   property int seed: 1
   property var itemCache: []
+  property int frame: 0
 
   property bool selecting: false
   property real selX0: 0
@@ -126,6 +127,9 @@ Item {
           ox: 0, oy: 0,                   // jitter offset from home
           mul: 1,                         // size multiplier
           heat: 0,                        // 0 calm .. 1 centre of a cluster
+          shownDigit: -1,                 // last values actually written to the item
+          shownBright: false,
+          wx: -1, wy: -1, ws: -1, wo: -1,
           scary: false,
           selected: false,
           binning: false,
@@ -139,7 +143,14 @@ Item {
     cells = list
     itemCache = []
 
-    if (bins.length !== 5) resetBins()
+    if (bins.length !== 5) {
+      resetBins()
+    } else {
+      // A rebuild throws away any digit still in flight, so their reservations
+      // have to go with them or the lids stay open forever.
+      for (var b = 0; b < bins.length; b++) bins[b].incoming = 0
+      bumpBins()
+    }
 
     // Lay the digits out immediately. Positions and sizes are otherwise only
     // assigned inside step(), which does not run while the field is suspended
@@ -157,7 +168,7 @@ Item {
   function resetBins() {
     var b = []
     for (var i = 0; i < 5; i++) {
-      b.push({ WO: 0, FC: 0, DR: 0, MA: 0, open: false, lastRefined: 0, lidAngle: 180 })
+      b.push({ WO: 0, FC: 0, DR: 0, MA: 0, open: false, lastRefined: 0, lidAngle: 180, incoming: 0 })
     }
     bins = b
     progress = 0
@@ -190,6 +201,7 @@ Item {
     if (itemCache.length !== cells.length) return
 
     zoff += driftSpeed
+    frame++
     var now = Date.now()
     var halfCell = cell * 0.5
     var reach = cursorReach
@@ -204,24 +216,38 @@ Item {
         stepBinning(s, i)
         it.x = s.hx + s.ox
         it.y = s.hy + s.oy
-        it.label.font.pixelSize = Math.max(1, baseSize * s.mul)
-        it.label.color = colorSelect
+        it.label.scale = s.mul
         it.label.opacity = s.alpha
-        it.label.text = s.digit
+        s.ws = s.mul
+        s.wo = s.alpha
+        s.wx = it.x
+        s.wy = it.y
+        if (s.shownDigit !== s.digit) {
+          it.label.text = s.digit
+          s.shownDigit = s.digit
+        }
+        if (!s.shownBright) {
+          it.label.color = colorSelect
+          s.shownBright = true
+        }
         continue
       }
 
       // Scariness: one noise lookup per cell. The z term is shared, so the
       // whole field breathes together rather than each digit doing its own
       // thing -- that coherence is what makes clusters legible.
-      var v = Noise.fbm3(s.col * noiseStep, s.row * noiseStep, zoff, seed)
-      var scary = v > scaryThreshold
-      s.scary = scary
-      // 0 for a calm digit, 1 at the centre of a cluster. Drives size and
-      // brightness together: on the terminal, idle digits sit dim and small
-      // and the scary ones burn bright.
-      var n = scary ? (v - scaryThreshold) / (1 - scaryThreshold) : 0
-      s.heat = n
+      // Scariness is re-sampled for a third of the field each frame rather
+      // than all of it. The cluster field drifts slowly, so a cell's value is
+      // indistinguishable across three frames, and the noise is by far the
+      // most expensive thing here -- two octaves of trilinear value noise is
+      // sixteen hashes per lookup.
+      if ((i + frame) % 3 === 0) {
+        var v = Noise.fbm3(s.col * noiseStep, s.row * noiseStep, zoff, seed)
+        s.scary = v > scaryThreshold
+        s.heat = s.scary ? (v - scaryThreshold) / (1 - scaryThreshold) : 0
+      }
+      var scary = s.scary
+      var n = s.heat
 
       var targetMul = 1
       if (scary) {
@@ -254,12 +280,38 @@ Item {
 
       s.selected = selecting && scary && insideSelection(s.hx + halfCell, s.hy + halfCell)
 
-      it.x = s.hx + s.ox
-      it.y = s.hy + s.oy
-      it.label.font.pixelSize = Math.max(1, baseSize * s.mul)
-      it.label.color = (s.selected || s.heat > 0.45) ? colorSelect : colorFg
-      it.label.opacity = s.selected ? 1 : 0.48 + s.heat * 0.52
-      it.label.text = s.digit
+      // Most of the field is calm and motionless at any moment. Writing its
+      // geometry every frame costs four property writes per digit for no
+      // visible change, so settled cells are skipped entirely.
+      //
+      // scale rather than font.pixelSize: writing a font property rebuilds and
+      // re-resolves the QFont every frame, where scale is just a node
+      // transform. Distance-field text stays crisp under it.
+      var nx = s.hx + s.ox
+      var ny = s.hy + s.oy
+      var nop = s.selected ? 1 : 0.48 + s.heat * 0.52
+      if (Math.abs(nx - s.wx) > 0.05 || Math.abs(ny - s.wy) > 0.05
+          || Math.abs(s.mul - s.ws) > 0.002 || Math.abs(nop - s.wo) > 0.004) {
+        it.x = nx
+        it.y = ny
+        it.label.scale = s.mul
+        it.label.opacity = nop
+        s.wx = nx
+        s.wy = ny
+        s.ws = s.mul
+        s.wo = nop
+      }
+      // Text and colour change rarely; writing them every frame costs a string
+      // conversion and a colour parse for nothing.
+      if (s.shownDigit !== s.digit) {
+        it.label.text = s.digit
+        s.shownDigit = s.digit
+      }
+      var bright = s.selected || s.heat > 0.45
+      if (s.shownBright !== bright) {
+        it.label.color = bright ? colorSelect : colorFg
+        s.shownBright = bright
+      }
     }
 
     stepBinLids(now)
@@ -314,6 +366,7 @@ Item {
     var key = options[Math.floor(Math.random() * options.length)]
     b[key]++
     b.open = true
+    b.incoming = Math.max(0, b.incoming - 1)
     b.lastRefined = Date.now()
     bumpBins()
     recomputeProgress()
@@ -332,7 +385,11 @@ Item {
     var changed = false
     for (var i = 0; i < bins.length; i++) {
       var b = bins[i]
-      var wantOpen = (now - b.lastRefined) < 1200
+      // Driven by digits still in flight, not a fixed timer. A timer cannot
+      // work here: the flight takes ~1420ms (an 8-frame hold plus ~35 frames
+      // of easing), so any timeout shorter than that shuts the lid before the
+      // digits land and they visibly reopen it on arrival.
+      var wantOpen = b.incoming > 0 || (now - b.lastRefined) < 600
       if (b.open !== wantOpen) {
         b.open = wantOpen
         changed = true
@@ -378,6 +435,7 @@ Item {
       // Open the receiving bin now, so the doors are waiting when they land.
       bins[target].lastRefined = Date.now()
       bins[target].open = true
+      bins[target].incoming += scaryHits.length
       bumpBins()
       var bx = binCentreX(target)
       var by = binMouthY()
@@ -488,7 +546,7 @@ Item {
         font.pixelSize: field.baseSize
         color: field.colorFg
         text: "0"
-        renderType: Text.NativeRendering
+        renderType: Text.QtRendering
       }
     }
 
@@ -507,7 +565,10 @@ Item {
     height: Math.abs(field.selY1 - field.selY0)
   }
 
-  // ---- header: file name, segmented meter, completion, wordmark ----
+  // ---- header ----
+  // The terminal lays this out as one boxed track -- file name, then a run of
+  // ticks growing out of it, then the completion figure -- with the Lumon mark
+  // sitting outside the box to its right.
   Item {
     id: header
     x: field.width * 0.05
@@ -515,8 +576,14 @@ Item {
     width: field.width * 0.9
     height: field.buffer * 0.5
 
+    readonly property real logoW: height * 0.88 * 2.05
+
     Rectangle {
-      anchors.fill: parent
+      id: track
+      x: 0
+      y: 0
+      width: parent.width - parent.logoW - field.buffer * 0.16
+      height: parent.height
       color: "transparent"
       border.color: field.colorFg
       border.width: 2
@@ -525,8 +592,7 @@ Item {
 
     Text {
       id: fileLabel
-      anchors.left: parent.left
-      anchors.leftMargin: field.buffer * 0.16
+      x: field.buffer * 0.16
       anchors.verticalCenter: parent.verticalCenter
       font.family: field.fontFamily
       font.pixelSize: field.baseSize * 0.78
@@ -534,39 +600,36 @@ Item {
       text: field.fileName
     }
 
-    // Progress reads as a row of discrete ticks rather than a solid bar.
+    // Only the lit ticks are drawn. The terminal shows bare track at 0%, not a
+    // row of dimmed placeholders.
     Item {
       id: meter
-      anchors.left: fileLabel.right
-      anchors.leftMargin: field.buffer * 0.18
-      anchors.right: pctLabel.left
-      anchors.rightMargin: field.buffer * 0.18
+      x: fileLabel.x + fileLabel.width + field.buffer * 0.14
       anchors.verticalCenter: parent.verticalCenter
-      height: parent.height * 0.52
+      width: pctLabel.x - x - field.buffer * 0.14
+      height: parent.height * 0.54
       clip: true
 
       readonly property real tickW: Math.max(2, field.baseSize * 0.13)
-      readonly property real gap: tickW * 1.4
+      readonly property real gap: tickW * 1.35
       readonly property int count: Math.max(1, Math.floor(width / (tickW + gap)))
       readonly property int lit: Math.round(count * field.progress)
 
       Repeater {
-        model: meter.count
+        model: meter.lit
         delegate: Rectangle {
           required property int index
           x: index * (meter.tickW + meter.gap)
           width: meter.tickW
           height: meter.height
           color: field.colorFg
-          opacity: index < meter.lit ? 1 : 0.18
         }
       }
     }
 
     Text {
       id: pctLabel
-      anchors.right: logo.left
-      anchors.rightMargin: field.buffer * 0.16
+      x: track.width - width - field.buffer * 0.16
       anchors.verticalCenter: parent.verticalCenter
       font.family: field.fontFamily
       font.pixelSize: field.baseSize * 0.72
@@ -575,15 +638,14 @@ Item {
     }
 
     // The Lumon mark. The oval is not a frame around a globe -- it IS the
-    // globe: a wireframe of meridians and latitudes, with the wordmark set
+    // globe: a wireframe of meridians and latitudes with the wordmark set
     // across its middle.
     Item {
       id: logo
       anchors.right: parent.right
-      anchors.rightMargin: field.buffer * 0.06
       anchors.verticalCenter: parent.verticalCenter
       height: parent.height * 0.88
-      width: height * 2.05
+      width: parent.logoW
 
       Canvas {
         id: globe
@@ -604,13 +666,11 @@ Item {
           ctx.strokeStyle = field.colorFg
           ctx.fillStyle = field.colorBg
 
-          // Outer ellipse, filled so the field behind does not read through.
           ctx.beginPath()
           ctx.ellipse(cx - a, cy - b, a * 2, b * 2)
           ctx.fill()
           ctx.stroke()
 
-          // Meridians: same height, narrowing toward the polar axis.
           var mer = [0.62, 0.24]
           for (var m = 0; m < mer.length; m++) {
             var rx = a * mer[m]
@@ -624,7 +684,6 @@ Item {
           ctx.lineTo(cx, cy + b)
           ctx.stroke()
 
-          // Latitudes, cut to the ellipse chord at that height.
           var lat = [-0.46, 0.46]
           for (var i = 0; i < lat.length; i++) {
             var f = lat[i]
@@ -646,8 +705,6 @@ Item {
         }
       }
 
-      // Knocked out of the wireframe so the meridians do not run through the
-      // letterforms.
       Rectangle {
         anchors.centerIn: parent
         width: wordmark.implicitWidth + logo.height * 0.18
