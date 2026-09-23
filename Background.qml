@@ -48,7 +48,7 @@ Item {
   }
 
   // Theme changes arrive as background changes, so every path that refreshes
-  // the wallpaper re-reads the theme symlink too.
+  // the wallpaper re-reads the theme name too.
   function refreshTheme() {
     if (!themeLinkProc.running) themeLinkProc.running = true
   }

@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "id": "anand.background",
-  "name": "My Background",
+  "id": "robertoflocksley.mdr-background",
+  "name": "Macrodata Refinement",
   "version": "1.0.0",
-  "author": "Omarchy",
-  "description": "Desktop background renderer with click handling and transitions",
+  "author": "RobertofLocksley",
+  "description": "Replaces the desktop wallpaper with a live Macrodata Refinement field: drifting clusters of scary digits that you lasso into bins.",
   "kinds": [
     "service"
   ],

@@ -3,16 +3,15 @@ import "MdrNoise.js" as Noise
 
 // A Macrodata Refinement field, as seen on the Lumon terminals in Severance.
 //
-// Deliberately self-contained and geometry-agnostic: it renders into whatever
-// size it is given and takes its palette from properties. That keeps it usable
-// both as the desktop background (its job today) and inside an ordinary window
-// later, without changes.
+// Self-contained and geometry-agnostic: it renders into whatever size it is
+// given and takes its palette from properties, so it works equally as a
+// background layer or inside an ordinary window.
 //
-// The mechanic, for anyone reading this cold: digits 0-9 fill the screen. Some
-// of them are "scary" -- they swell and twitch. Scariness is not random; it is
-// a noise field thresholded per cell, so scary digits form coherent clusters
-// that drift slowly. You lasso a cluster, and if most of what you caught was
-// scary, it flies into one of the five bins at the bottom.
+// The mechanic: digits 0-9 fill the screen. Some of them are "scary" -- they
+// swell and twitch. Scariness is not random; it is a noise field thresholded
+// per cell, so scary digits form coherent clusters that drift slowly. You lasso
+// a cluster, and if most of what you caught was scary, it flies into one of the
+// five bins at the bottom.
 
 Item {
   id: field
@@ -228,8 +227,7 @@ Item {
         s.oy *= 0.8
       }
 
-      // Cursor proximity: swell and unsettle nearby digits. This is the part
-      // that makes the wallpaper feel alive under the pointer.
+      // Cursor proximity: swell and unsettle nearby digits.
       if (haveCursor) {
         var dx = (s.hx + halfCell) - cursorX
         var dy = (s.hy + halfCell) - cursorY
