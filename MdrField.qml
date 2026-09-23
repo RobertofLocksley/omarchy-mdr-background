@@ -57,14 +57,23 @@ Item {
   readonly property real buffer: Math.max(48, Math.min(width, height) * 0.0926)
   readonly property real cell: Math.max(24, (Math.min(width, height) - buffer * 2) / 10)
   readonly property real baseSize: cell * 0.30   // chrome text
-  // The field's digits are far larger than the chrome, roughly half the
-  // cell pitch, as on the terminal.
-  readonly property real digitSize: cell * 0.46
+  // The field's digits are larger than the chrome, though not as large as the
+  // cell: roughly a third of the pitch.
+  readonly property real digitSize: cell * 0.38
+
+  // Vertical structure. topClearance keeps the header out from under the
+  // desktop bar, which sits above this layer and would otherwise clip it.
+  property real topClearance: 36
+  readonly property real headerH: buffer * 0.72
+  readonly property real fieldTop: topClearance + headerH + 18
+  readonly property real footerH: buffer * 1.48
+  readonly property real fieldBottom: height - footerH
+
   readonly property int cols: Math.max(1, Math.floor(width / cell))
-  readonly property int rows: Math.max(1, Math.floor((height - buffer * 2) / cell))
+  readonly property int rows: Math.max(1, Math.floor((fieldBottom - fieldTop) / cell))
   readonly property int cellCount: cols * rows
   readonly property real gridOriginX: (width - cols * cell) * 0.5
-  readonly property real gridOriginY: buffer
+  readonly property real gridOriginY: fieldTop
 
   // ---- file state ----------------------------------------------------------
   readonly property var fileNames: [
@@ -469,7 +478,7 @@ Item {
   // The lid line: digits should vanish where the doors open, not behind the
   // plate below it.
   function binMouthY() {
-    return height - buffer * 0.75 - buffer * 0.14
+    return fieldBottom + 22
   }
 
   function flash(msg) {
@@ -520,10 +529,10 @@ Item {
   // Field boundary rules. The terminal draws these as close-set pairs.
   Repeater {
     model: [
-      { y: field.buffer,                 o: 0.85 },
-      { y: field.buffer + 3,             o: 0.35 },
-      { y: field.height - field.buffer,     o: 0.85 },
-      { y: field.height - field.buffer + 3, o: 0.35 }
+      { y: field.fieldTop - 10,    o: 0.85 },
+      { y: field.fieldTop - 7,     o: 0.35 },
+      { y: field.fieldBottom + 10, o: 0.85 },
+      { y: field.fieldBottom + 13, o: 0.35 }
     ]
     delegate: Rectangle {
       required property var modelData
@@ -584,13 +593,13 @@ Item {
   Item {
     id: header
     x: 0
-    y: field.buffer * 0.12
+    y: field.topClearance
     width: field.width
-    height: field.buffer * 0.76
+    height: field.headerH
 
     readonly property real boxX: field.width * 0.05
     readonly property real boxW: field.width * 0.9
-    readonly property real logoH: height * 1.3
+    readonly property real logoH: height * 1.16
     readonly property real logoW: logoH * 2.05
     readonly property real logoX: field.width - logoW - 12
     readonly property real trackX1: logoX - 24
@@ -734,21 +743,18 @@ Item {
         }
       }
 
-      Rectangle {
-        anchors.centerIn: parent
-        width: wordmark.implicitWidth + logo.height * 0.18
-        height: wordmark.implicitHeight * 0.92
-        color: field.colorBg
-      }
-
+      // A halo around each glyph rather than a rectangle behind them: a
+      // rectangular knockout leaves its own corners visible as dark blocks
+      // against the wireframe.
       Text {
         id: wordmark
         anchors.centerIn: parent
         font.family: field.wordmarkFamily
-        font.pixelSize: logo.height * 0.40
+        font.pixelSize: logo.height * 0.34
         font.bold: true
-        font.letterSpacing: logo.height * 0.015
         color: field.colorFg
+        style: Text.Outline
+        styleColor: field.colorBg
         text: "LUMON"
       }
     }
@@ -779,7 +785,7 @@ Item {
         binRepeater.bump
         return record ? record.lidAngle : 180
       }
-      readonly property real plateW: binW * 0.75
+      readonly property real plateW: binW * 0.74
 
       x: index * binW
       y: 0
@@ -791,7 +797,7 @@ Item {
         id: levels
         width: parent.plateW
         x: (parent.binW - width) * 0.5
-        y: field.binMouthY() - field.buffer * 1.76
+        y: field.binMouthY() - field.buffer * 1.9
         height: field.buffer * 1.4
         opacity: record && record.open ? 1 : 0
         visible: opacity > 0.01
@@ -923,44 +929,48 @@ Item {
         Rectangle {
           id: plate
           width: parent.width
-          height: field.buffer * 0.26
+          height: field.buffer * 0.32
           color: field.colorBg
           border.color: field.colorFg
-          border.width: 1
+          border.width: 1.5
 
           Text {
             anchors.centerIn: parent
-            font.family: field.fontFamily
-            font.pixelSize: field.baseSize * 0.62
+            font.family: field.wordmarkFamily
+            font.pixelSize: field.baseSize * 0.9
+            font.bold: true
             color: field.colorFg
             text: String(index + 1).padStart(2, "0")
           }
         }
 
         Rectangle {
-          y: plate.height + field.buffer * 0.06
+          y: plate.height + field.buffer * 0.07
           width: parent.width
-          height: field.buffer * 0.26
+          height: field.buffer * 0.32
           color: field.colorBg
           border.color: field.colorFg
-          border.width: 1
+          border.width: 1.5
 
           Rectangle {
-            x: 1; y: 1
-            height: parent.height - 2
-            width: Math.max(0, (parent.width - 2) * pct)
+            x: 1.5; y: 1.5
+            height: parent.height - 3
+            width: Math.max(0, (parent.width - 3) * pct)
             color: field.colorFg
           }
 
+          // Dark glyphs with a bright edge, so the figure reads whether or not
+          // the fill has reached it.
           Text {
             anchors.left: parent.left
-            anchors.leftMargin: 4
+            anchors.leftMargin: 8
             anchors.verticalCenter: parent.verticalCenter
-            font.family: field.fontFamily
-            font.pixelSize: field.baseSize * 0.5
-            color: field.colorFg
+            font.family: field.wordmarkFamily
+            font.pixelSize: field.baseSize * 0.82
+            font.bold: true
+            color: field.colorBg
             style: Text.Outline
-            styleColor: field.colorBg
+            styleColor: field.colorFg
             text: Math.floor(pct * 100) + "%"
           }
         }
@@ -971,9 +981,10 @@ Item {
   // ---- coordinates ----
   Text {
     anchors.horizontalCenter: parent.horizontalCenter
-    y: parent.height - field.baseSize * 1.05
-    font.family: field.fontFamily
-    font.pixelSize: field.baseSize * 0.62
+    y: parent.height - implicitHeight - 12
+    font.family: field.wordmarkFamily
+    font.pixelSize: field.baseSize * 0.9
+    font.bold: true
     color: field.colorFg
     text: field.coordinates
   }
