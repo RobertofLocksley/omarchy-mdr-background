@@ -239,11 +239,10 @@ Item {
       // the same state the bar's workspace widget already tracks, so it updates
       // on window open/close and workspace switches for free.
       //
-      // Note this deliberately does NOT touch updatesEnabled. The stock comment
-      // below records that parking the layer that way can lose its committed
-      // buffer and leave a black desktop. Stopping the field's frame driver gets
-      // the same CPU saving with none of that risk: all the cost here is
-      // per-frame redraw, and the last frame stays committed.
+      // Do not suspend via updatesEnabled: parking the layer that way can lose
+      // its committed buffer and leave a black desktop (see the note below).
+      // Stopping the field's frame driver saves the same CPU without that risk,
+      // since the last frame stays committed.
       readonly property var hyprMonitor: {
         var monitors = Hyprland.monitors.values
         for (var i = 0; i < monitors.length; i++) {

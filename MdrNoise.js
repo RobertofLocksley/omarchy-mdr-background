@@ -3,15 +3,10 @@
 // Deterministic 3D value noise on a hashed integer lattice, smoothstep
 // interpolated.
 //
-// The point of using noise at all is that it is spatially coherent: thresholding
-// it yields connected blobs rather than speckle, which is what makes the
-// "scary" clusters read as deliberate groupings instead of random digits. The
-// third axis is advanced slowly over time so those clusters drift and breathe
-// rather than sitting still.
-//
-// Value noise (rather than simplex) is deliberate. It is a few lines, carries no
-// licensing question, and at the sampling rate used here -- one lookup per grid
-// cell per frame -- the visual difference is not perceptible.
+// Noise is used because it is spatially coherent: thresholding it yields
+// connected blobs rather than speckle, so the "scary" digits read as clusters
+// rather than as scattered individuals. The third axis advances slowly over
+// time, which makes those clusters drift.
 
 function hash3(i, j, k, seed) {
   var h = Math.imul(i, 374761393) + Math.imul(j, 668265263) + Math.imul(k, 1442695040) + Math.imul(seed, 1013904223)

@@ -4,48 +4,41 @@ A Quickshell background plugin for [Omarchy](https://omarchy.org/) 4 that
 replaces the desktop wallpaper with a live Macrodata Refinement field, as seen
 on the Lumon terminals in *Severance*.
 
-Digits fill the screen. Some of them are *scary* — they swell and twitch. Lasso
-a cluster with the mouse and, if most of what you caught was scary, it flies
-into one of the five bins along the bottom.
+Digits fill the screen. Some are *scary* — they swell and twitch, in clusters
+that drift across the field. Lasso a cluster with the mouse and, if most of what
+you caught was scary, it flies into one of the five bins along the bottom.
 
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/<you>/omarchy-mdr-background
+omarchy plugin add https://github.com/RobertofLocksley/omarchy-mdr-background
 ```
 
-The plugin replaces Omarchy's built-in `omarchy.background`, so it takes over
-wallpaper rendering entirely — including transitions and theme switching, which
-are preserved as-is.
+This replaces Omarchy's built-in `omarchy.background`, taking over wallpaper
+rendering including transitions and theme switching.
 
 ## Activation
 
-The field only draws under a theme that opts in. By default that is the theme
-slug `lumon-macrodata`, read from `~/.local/state/omarchy/current/theme.name`.
-Under any other theme you get the ordinary wallpaper, unchanged.
+The field only draws under a theme that opts in — by default the theme slug
+`lumon-macrodata`, which pairs with
+[omarchy-lumon-macrodata](https://github.com/RobertofLocksley/omarchy-lumon-macrodata).
+Under any other theme you get the ordinary wallpaper.
 
-To bind it to a different theme, edit `mdrThemeName` in `Background.qml`.
+To bind it to a different theme, change `mdrThemeName` in `Background.qml`.
 
-## Behaviour worth knowing
+## Behaviour
 
-**It suspends when covered.** A background-layer surface is invisible the
-moment a window sits over it, so animating underneath one is wasted work. The
-frame driver stops, driven off the Hyprland workspace's window count, and
-resumes when the workspace empties. CPU/GPU cost goes to effectively zero;
-memory stays allocated, since the grid objects are kept so resuming is instant.
+**It pauses when covered.** The field animates only while the desktop is
+actually visible; open a window over it and the animation stops until the
+workspace is clear again. Idle cost is effectively zero.
 
-This deliberately does *not* use `updatesEnabled`. Omarchy's stock background
-plugin documents that parking the layer that way can lose its committed buffer
-and leave a black desktop until the shell restarts.
-
-**Double-click still works.** Omarchy's double-click-to-change-background and
-right-double-click-to-change-theme gestures are forwarded through. A press that
-travels less than 10px is treated as a click rather than a lasso, so the two do
-not fight.
+**Double-click gestures still work.** Omarchy's double-click to change
+background, and right-double-click to change theme, both pass through. A press
+that travels less than 10px counts as a click rather than a lasso.
 
 ## Tuning
 
-Properties on `MdrField`, all settable from `Background.qml`:
+Properties on `MdrField`, settable from `Background.qml`:
 
 | Property | Default | Effect |
 |---|---|---|
@@ -55,14 +48,10 @@ Properties on `MdrField`, all settable from `Background.qml`:
 | `tickMs` | `33` | Frame interval; 33 is ~30fps |
 | `scanlines` | `true` | CRT scanline overlay |
 
-## Credits
+## License
 
-Derived from Omarchy's `omarchy.background` plugin (MIT, Basecamp).
+MIT. Derived from Omarchy's `omarchy.background` plugin, also MIT —
+[basecamp/omarchy](https://github.com/basecamp/omarchy).
 
-The refinement mechanic is reimplemented from scratch — noise-thresholded
-clusters, the majority-scary selection rule, and the bin model are all informed
-by [Lumon-Industries/Macrodata-Refinement](https://github.com/Lumon-Industries/Macrodata-Refinement),
-but no code is copied from it: that project declares no license.
-
-*Severance* is Apple TV+. Not affiliated with or endorsed by Apple or the
-show's producers.
+*Severance* is Apple TV+. Not affiliated with or endorsed by Apple or the show's
+producers.
