@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Shapes
 import "MdrNoise.js" as Noise
 
 // A Macrodata Refinement field, as seen on the Lumon terminals in Severance.
@@ -28,6 +29,8 @@ Item {
   property color colorMA: "#F9ECBB"
 
   property string fontFamily: "monospace"
+  // The mark is set in a grotesque, not the terminal monospace.
+  property string wordmarkFamily: "sans-serif"
 
   // ---- behaviour -----------------------------------------------------------
   // running=false stops the frame driver entirely. The last frame stays on
@@ -571,62 +574,94 @@ Item {
       text: Math.floor(field.progress * 100) + "% Complete"
     }
 
-    // The Lumon mark: globe in an oval, wordmark beside it.
+    // The Lumon mark. The oval is not a frame around a globe -- it IS the
+    // globe: a wireframe of meridians and latitudes, with the wordmark set
+    // across its middle.
     Item {
       id: logo
       anchors.right: parent.right
-      anchors.rightMargin: field.buffer * 0.08
+      anchors.rightMargin: field.buffer * 0.06
       anchors.verticalCenter: parent.verticalCenter
-      width: field.buffer * 1.2
-      height: parent.height * 0.76
+      height: parent.height * 0.88
+      width: height * 2.05
 
-      Rectangle {
+      Canvas {
+        id: globe
         anchors.fill: parent
-        radius: height * 0.5
-        color: "transparent"
-        border.color: field.colorFg
-        border.width: 1.5
+        antialiasing: true
+
+        onPaint: {
+          var ctx = getContext("2d")
+          ctx.reset()
+
+          var lw = Math.max(1, height * 0.042)
+          var cx = width / 2
+          var cy = height / 2
+          var a = cx - lw
+          var b = cy - lw
+
+          ctx.lineWidth = lw
+          ctx.strokeStyle = field.colorFg
+          ctx.fillStyle = field.colorBg
+
+          // Outer ellipse, filled so the field behind does not read through.
+          ctx.beginPath()
+          ctx.ellipse(cx - a, cy - b, a * 2, b * 2)
+          ctx.fill()
+          ctx.stroke()
+
+          // Meridians: same height, narrowing toward the polar axis.
+          var mer = [0.62, 0.24]
+          for (var m = 0; m < mer.length; m++) {
+            var rx = a * mer[m]
+            ctx.beginPath()
+            ctx.ellipse(cx - rx, cy - b, rx * 2, b * 2)
+            ctx.stroke()
+          }
+
+          ctx.beginPath()
+          ctx.moveTo(cx, cy - b)
+          ctx.lineTo(cx, cy + b)
+          ctx.stroke()
+
+          // Latitudes, cut to the ellipse chord at that height.
+          var lat = [-0.46, 0.46]
+          for (var i = 0; i < lat.length; i++) {
+            var f = lat[i]
+            var y = cy + b * f
+            var half = a * Math.sqrt(Math.max(0, 1 - f * f))
+            ctx.beginPath()
+            ctx.moveTo(cx - half, y)
+            ctx.lineTo(cx + half, y)
+            ctx.stroke()
+          }
+        }
+
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        Connections {
+          target: field
+          function onColorFgChanged() { globe.requestPaint() }
+          function onColorBgChanged() { globe.requestPaint() }
+        }
       }
 
-      Item {
-        id: globe
-        width: parent.height * 0.6
-        height: width
-        x: parent.height * 0.2
-        anchors.verticalCenter: parent.verticalCenter
-
-        Rectangle {
-          anchors.fill: parent
-          radius: width * 0.5
-          color: "transparent"
-          border.color: field.colorFg
-          border.width: 1
-        }
-        // A stadium stands in for the meridian ellipse at this size.
-        Rectangle {
-          anchors.centerIn: parent
-          width: parent.width * 0.46
-          height: parent.height
-          radius: width * 0.5
-          color: "transparent"
-          border.color: field.colorFg
-          border.width: 1
-        }
-        Rectangle {
-          anchors.centerIn: parent
-          width: parent.width
-          height: 1
-          color: field.colorFg
-        }
+      // Knocked out of the wireframe so the meridians do not run through the
+      // letterforms.
+      Rectangle {
+        anchors.centerIn: parent
+        width: wordmark.implicitWidth + logo.height * 0.18
+        height: wordmark.implicitHeight * 0.92
+        color: field.colorBg
       }
 
       Text {
-        anchors.left: globe.right
-        anchors.leftMargin: parent.height * 0.14
-        anchors.verticalCenter: parent.verticalCenter
-        font.family: field.fontFamily
-        font.pixelSize: field.baseSize * 0.58
-        font.letterSpacing: field.baseSize * 0.05
+        id: wordmark
+        anchors.centerIn: parent
+        font.family: field.wordmarkFamily
+        font.pixelSize: logo.height * 0.40
+        font.bold: true
+        font.letterSpacing: logo.height * 0.015
         color: field.colorFg
         text: "LUMON"
       }
@@ -733,35 +768,63 @@ Item {
         }
       }
 
-      // Lids. Two doors hinged at the bin's outer edges: flat across the mouth
-      // when shut, swung up and outward when receiving. Drawn before the plate,
-      // so the shut position is simply hidden behind it.
+      // Lids: two doors hinged at the bin's outer edges, shut across the mouth
+      // and swung up and outward while receiving.
+      //
+      // Each door is a quadrilateral whose thickness runs straight down the
+      // screen rather than square to the door. That skew is what reads as a
+      // solid slab seen at an angle -- a rotated rectangle keeps its thickness
+      // perpendicular and just looks flat.
       Item {
         id: lids
-        x: (parent.binW - parent.plateW) * 0.5
-        y: field.binMouthY()
-        width: parent.plateW
-        height: 1
+        // The doors swing outward past the bin's own edges, so this has to be
+        // wider than the plate or the shapes get clipped at the hinges.
+        readonly property real doorW: parent.plateW * 0.5
+        readonly property real hingeY: field.buffer * 1.15
+        readonly property real thick: Math.max(4, parent.plateW * 0.05)
+        readonly property real hl: doorW                    // left hinge
+        readonly property real hr: doorW + parent.plateW    // right hinge
 
-        Rectangle {
-          x: 0
-          y: 0
-          width: parent.width * 0.5
-          height: 2
-          color: field.colorFg
+        x: (parent.binW - parent.plateW) * 0.5 - doorW
+        y: field.binMouthY() - hingeY
+        width: parent.plateW + doorW * 2
+        height: hingeY + thick + 2
+
+        readonly property real aL: (180 + lidAngle) * Math.PI / 180
+        readonly property real aR: (-lidAngle) * Math.PI / 180
+        readonly property real lx: doorW * Math.cos(aL)
+        readonly property real ly: doorW * Math.sin(aL)
+        readonly property real rx: doorW * Math.cos(aR)
+        readonly property real ry: doorW * Math.sin(aR)
+
+        Shape {
+          anchors.fill: parent
+          preferredRendererType: Shape.CurveRenderer
           antialiasing: true
-          transformOrigin: Item.TopLeft
-          rotation: 180 + lidAngle
-        }
-        Rectangle {
-          x: parent.width
-          y: 0
-          width: parent.width * 0.5
-          height: 2
-          color: field.colorFg
-          antialiasing: true
-          transformOrigin: Item.TopLeft
-          rotation: -lidAngle
+
+          ShapePath {
+            fillColor: field.colorBg
+            strokeColor: field.colorFg
+            strokeWidth: 1
+            startX: lids.hl
+            startY: lids.hingeY
+            PathLine { x: lids.hl + lids.lx; y: lids.hingeY + lids.ly }
+            PathLine { x: lids.hl + lids.lx; y: lids.hingeY + lids.ly + lids.thick }
+            PathLine { x: lids.hl;           y: lids.hingeY + lids.thick }
+            PathLine { x: lids.hl;           y: lids.hingeY }
+          }
+
+          ShapePath {
+            fillColor: field.colorBg
+            strokeColor: field.colorFg
+            strokeWidth: 1
+            startX: lids.hr
+            startY: lids.hingeY
+            PathLine { x: lids.hr + lids.rx; y: lids.hingeY + lids.ry }
+            PathLine { x: lids.hr + lids.rx; y: lids.hingeY + lids.ry + lids.thick }
+            PathLine { x: lids.hr;           y: lids.hingeY + lids.thick }
+            PathLine { x: lids.hr;           y: lids.hingeY }
+          }
         }
       }
 

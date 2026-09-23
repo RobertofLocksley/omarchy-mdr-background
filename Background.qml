@@ -395,6 +395,9 @@ Item {
         // typeface the terminals actually use.
         fontFamily: "Nimbus Mono PS"
 
+        // URW's Helvetica clone, for the Lumon mark.
+        wordmarkFamily: "Nimbus Sans"
+
         onDoubleClicked: function(button) {
           if (button === Qt.RightButton) root.openThemeSwitcher()
           else root.openSelector()
