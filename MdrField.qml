@@ -51,7 +51,7 @@ Item {
   // ---- derived geometry ----------------------------------------------------
   readonly property real buffer: Math.max(48, Math.min(width, height) * 0.0926)
   readonly property real cell: Math.max(24, (Math.min(width, height) - buffer * 2) / 10)
-  readonly property real baseSize: cell * 0.33
+  readonly property real baseSize: cell * 0.30
   readonly property int cols: Math.max(1, Math.floor(width / cell))
   readonly property int rows: Math.max(1, Math.floor((height - buffer * 2) / cell))
   readonly property int cellCount: cols * rows
@@ -122,6 +122,7 @@ Item {
           hy: gridOriginY + r * cell,
           ox: 0, oy: 0,                   // jitter offset from home
           mul: 1,                         // size multiplier
+          heat: 0,                        // 0 calm .. 1 centre of a cluster
           scary: false,
           selected: false,
           binning: false,
@@ -153,7 +154,7 @@ Item {
   function resetBins() {
     var b = []
     for (var i = 0; i < 5; i++) {
-      b.push({ WO: 0, FC: 0, DR: 0, MA: 0, open: false, lastRefined: 0, openedAt: 0 })
+      b.push({ WO: 0, FC: 0, DR: 0, MA: 0, open: false, lastRefined: 0, lidAngle: 180 })
     }
     bins = b
     progress = 0
@@ -213,10 +214,14 @@ Item {
       var v = Noise.fbm3(s.col * noiseStep, s.row * noiseStep, zoff, seed)
       var scary = v > scaryThreshold
       s.scary = scary
+      // 0 for a calm digit, 1 at the centre of a cluster. Drives size and
+      // brightness together: on the terminal, idle digits sit dim and small
+      // and the scary ones burn bright.
+      var n = scary ? (v - scaryThreshold) / (1 - scaryThreshold) : 0
+      s.heat = n
 
       var targetMul = 1
       if (scary) {
-        var n = (v - scaryThreshold) / (1 - scaryThreshold)
         targetMul = 1 + n * 1.1
         // Bounded random walk. The decay keeps it from drifting off its home
         // cell the way a pure walk would.
@@ -249,8 +254,8 @@ Item {
       it.x = s.hx + s.ox
       it.y = s.hy + s.oy
       it.label.font.pixelSize = Math.max(1, baseSize * s.mul)
-      it.label.color = s.selected ? colorSelect : colorFg
-      it.label.opacity = 1
+      it.label.color = (s.selected || s.heat > 0.45) ? colorSelect : colorFg
+      it.label.opacity = s.selected ? 1 : 0.48 + s.heat * 0.52
       it.label.text = s.digit
     }
 
@@ -287,8 +292,10 @@ Item {
     var ease = 0.12
     s.ox += dx * ease
     s.oy += dy * ease
-    s.mul += (0.8 - s.mul) * 0.08
-    s.alpha = Math.max(0.05, Math.min(1, dist / (height * 0.5)))
+    s.mul += (0.55 - s.mul) * 0.1
+    // Fade over the last couple of cells so the digit disappears into the
+    // mouth rather than sliding behind the bin chrome.
+    s.alpha = Math.max(0, Math.min(1, dist / (cell * 2.0)))
   }
 
   function depositInBin(index) {
@@ -315,12 +322,21 @@ Item {
     binRepeater.bump++
   }
 
+  // Doors hinge at the bin's outer edges and swing up and outward: 180 lies
+  // flat across the mouth, 45 is fully open. They snap open and close lazily,
+  // which is how they read on screen.
   function stepBinLids(now) {
     var changed = false
     for (var i = 0; i < bins.length; i++) {
       var b = bins[i]
-      if (b.open && now - b.lastRefined > 1400) {
-        b.open = false
+      var wantOpen = (now - b.lastRefined) < 1200
+      if (b.open !== wantOpen) {
+        b.open = wantOpen
+        changed = true
+      }
+      var target = wantOpen ? 45 : 180
+      if (Math.abs(b.lidAngle - target) > 0.4) {
+        b.lidAngle += (target - b.lidAngle) * (wantOpen ? 0.32 : 0.10)
         changed = true
       }
     }
@@ -356,8 +372,12 @@ Item {
         return
       }
       var target = open[Math.floor(Math.random() * open.length)]
+      // Open the receiving bin now, so the doors are waiting when they land.
+      bins[target].lastRefined = Date.now()
+      bins[target].open = true
+      bumpBins()
       var bx = binCentreX(target)
-      var by = binCentreY()
+      var by = binMouthY()
       for (var h = 0; h < scaryHits.length; h++) {
         var hit = scaryHits[h]
         hit.binning = true
@@ -377,8 +397,10 @@ Item {
     return i * w + w * 0.5
   }
 
-  function binCentreY() {
-    return height - buffer * 0.75
+  // The lid line: digits should vanish where the doors open, not behind the
+  // plate below it.
+  function binMouthY() {
+    return height - buffer * 0.75 - buffer * 0.14
   }
 
   function flash(msg) {
@@ -426,20 +448,23 @@ Item {
     color: field.colorBg
   }
 
-  // Field boundary rules, as on the terminal.
-  Rectangle {
-    x: 0; width: parent.width
-    y: field.buffer
-    height: 1
-    color: field.colorFg
-    opacity: 0.55
-  }
-  Rectangle {
-    x: 0; width: parent.width
-    y: parent.height - field.buffer
-    height: 1
-    color: field.colorFg
-    opacity: 0.55
+  // Field boundary rules. The terminal draws these as close-set pairs.
+  Repeater {
+    model: [
+      { y: field.buffer,                 o: 0.85 },
+      { y: field.buffer + 3,             o: 0.35 },
+      { y: field.height - field.buffer,     o: 0.85 },
+      { y: field.height - field.buffer + 3, o: 0.35 }
+    ]
+    delegate: Rectangle {
+      required property var modelData
+      x: 0
+      width: field.width
+      y: modelData.y
+      height: 1
+      color: field.colorFg
+      opacity: modelData.o
+    }
   }
 
   // ---- the digits ----
@@ -479,7 +504,7 @@ Item {
     height: Math.abs(field.selY1 - field.selY0)
   }
 
-  // ---- header: progress bar, file name, wordmark ----
+  // ---- header: file name, segmented meter, completion, wordmark ----
   Item {
     id: header
     x: field.width * 0.05
@@ -492,36 +517,119 @@ Item {
       color: "transparent"
       border.color: field.colorFg
       border.width: 2
-    }
-
-    // Fills from the right, matching the terminal.
-    Rectangle {
-      height: parent.height - 4
-      y: 2
-      width: Math.max(0, (parent.width - 4) * field.progress)
-      x: parent.width - 2 - width
-      color: field.colorFg
+      radius: height * 0.16
     }
 
     Text {
+      id: fileLabel
       anchors.left: parent.left
-      anchors.leftMargin: field.buffer * 0.2
+      anchors.leftMargin: field.buffer * 0.16
       anchors.verticalCenter: parent.verticalCenter
       font.family: field.fontFamily
-      font.pixelSize: field.baseSize * 0.82
+      font.pixelSize: field.baseSize * 0.78
       color: field.colorFg
-      text: field.fileName + "  " + Math.floor(field.progress * 100) + "%"
+      text: field.fileName
+    }
+
+    // Progress reads as a row of discrete ticks rather than a solid bar.
+    Item {
+      id: meter
+      anchors.left: fileLabel.right
+      anchors.leftMargin: field.buffer * 0.18
+      anchors.right: pctLabel.left
+      anchors.rightMargin: field.buffer * 0.18
+      anchors.verticalCenter: parent.verticalCenter
+      height: parent.height * 0.52
+      clip: true
+
+      readonly property real tickW: Math.max(2, field.baseSize * 0.13)
+      readonly property real gap: tickW * 1.4
+      readonly property int count: Math.max(1, Math.floor(width / (tickW + gap)))
+      readonly property int lit: Math.round(count * field.progress)
+
+      Repeater {
+        model: meter.count
+        delegate: Rectangle {
+          required property int index
+          x: index * (meter.tickW + meter.gap)
+          width: meter.tickW
+          height: meter.height
+          color: field.colorFg
+          opacity: index < meter.lit ? 1 : 0.18
+        }
+      }
     }
 
     Text {
-      anchors.right: parent.right
-      anchors.rightMargin: field.buffer * 0.2
+      id: pctLabel
+      anchors.right: logo.left
+      anchors.rightMargin: field.buffer * 0.16
       anchors.verticalCenter: parent.verticalCenter
       font.family: field.fontFamily
       font.pixelSize: field.baseSize * 0.72
-      font.letterSpacing: field.baseSize * 0.18
       color: field.colorFg
-      text: "LUMON"
+      text: Math.floor(field.progress * 100) + "% Complete"
+    }
+
+    // The Lumon mark: globe in an oval, wordmark beside it.
+    Item {
+      id: logo
+      anchors.right: parent.right
+      anchors.rightMargin: field.buffer * 0.08
+      anchors.verticalCenter: parent.verticalCenter
+      width: field.buffer * 1.2
+      height: parent.height * 0.76
+
+      Rectangle {
+        anchors.fill: parent
+        radius: height * 0.5
+        color: "transparent"
+        border.color: field.colorFg
+        border.width: 1.5
+      }
+
+      Item {
+        id: globe
+        width: parent.height * 0.6
+        height: width
+        x: parent.height * 0.2
+        anchors.verticalCenter: parent.verticalCenter
+
+        Rectangle {
+          anchors.fill: parent
+          radius: width * 0.5
+          color: "transparent"
+          border.color: field.colorFg
+          border.width: 1
+        }
+        // A stadium stands in for the meridian ellipse at this size.
+        Rectangle {
+          anchors.centerIn: parent
+          width: parent.width * 0.46
+          height: parent.height
+          radius: width * 0.5
+          color: "transparent"
+          border.color: field.colorFg
+          border.width: 1
+        }
+        Rectangle {
+          anchors.centerIn: parent
+          width: parent.width
+          height: 1
+          color: field.colorFg
+        }
+      }
+
+      Text {
+        anchors.left: globe.right
+        anchors.leftMargin: parent.height * 0.14
+        anchors.verticalCenter: parent.verticalCenter
+        font.family: field.fontFamily
+        font.pixelSize: field.baseSize * 0.58
+        font.letterSpacing: field.baseSize * 0.05
+        color: field.colorFg
+        text: "LUMON"
+      }
     }
   }
 
@@ -538,8 +646,19 @@ Item {
         binRepeater.bump      // dependency: forces re-eval when bins mutate
         return field.bins.length > index ? field.bins[index] : null
       }
-      readonly property int filled: record ? field.binTotal(record) : 0
+      // These must name binRepeater.bump themselves. Reading it only inside
+      // `record` is not enough: that binding returns the same object every
+      // time, so QML sees no change and nothing downstream recomputes.
+      readonly property int filled: {
+        binRepeater.bump
+        return record ? field.binTotal(record) : 0
+      }
       readonly property real pct: field.binGoal > 0 ? Math.min(1, filled / field.binGoal) : 0
+      readonly property real lidAngle: {
+        binRepeater.bump
+        return record ? record.lidAngle : 180
+      }
+      readonly property real plateW: binW * 0.75
 
       x: index * binW
       y: 0
@@ -549,9 +668,9 @@ Item {
       // Level readout, revealed while the bin is receiving digits.
       Item {
         id: levels
-        width: parent.binW * 0.75
+        width: parent.plateW
         x: (parent.binW - width) * 0.5
-        y: field.binCentreY() - field.buffer * 1.9
+        y: field.binMouthY() - field.buffer * 1.76
         height: field.buffer * 1.4
         opacity: record && record.open ? 1 : 0
         visible: opacity > 0.01
@@ -614,11 +733,43 @@ Item {
         }
       }
 
+      // Lids. Two doors hinged at the bin's outer edges: flat across the mouth
+      // when shut, swung up and outward when receiving. Drawn before the plate,
+      // so the shut position is simply hidden behind it.
+      Item {
+        id: lids
+        x: (parent.binW - parent.plateW) * 0.5
+        y: field.binMouthY()
+        width: parent.plateW
+        height: 1
+
+        Rectangle {
+          x: 0
+          y: 0
+          width: parent.width * 0.5
+          height: 2
+          color: field.colorFg
+          antialiasing: true
+          transformOrigin: Item.TopLeft
+          rotation: 180 + lidAngle
+        }
+        Rectangle {
+          x: parent.width
+          y: 0
+          width: parent.width * 0.5
+          height: 2
+          color: field.colorFg
+          antialiasing: true
+          transformOrigin: Item.TopLeft
+          rotation: -lidAngle
+        }
+      }
+
       // Bin body: index plate and fill bar.
       Item {
-        width: parent.binW * 0.75
+        width: parent.plateW
         x: (parent.binW - width) * 0.5
-        y: field.binCentreY() - field.buffer * 0.14
+        y: field.binMouthY()
 
         Rectangle {
           id: plate
@@ -668,21 +819,14 @@ Item {
     }
   }
 
-  // ---- coordinate strip ----
-  Rectangle {
-    x: 0
-    y: parent.height - field.baseSize * 0.95
-    width: parent.width
-    height: field.baseSize * 0.95
+  // ---- coordinates ----
+  Text {
+    anchors.horizontalCenter: parent.horizontalCenter
+    y: parent.height - field.baseSize * 1.05
+    font.family: field.fontFamily
+    font.pixelSize: field.baseSize * 0.62
     color: field.colorFg
-
-    Text {
-      anchors.centerIn: parent
-      font.family: field.fontFamily
-      font.pixelSize: field.baseSize * 0.6
-      color: field.colorBg
-      text: field.coordinates
-    }
+    text: field.coordinates
   }
 
   // ---- status flash ----
