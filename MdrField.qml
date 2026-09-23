@@ -31,6 +31,8 @@ Item {
   property string fontFamily: "monospace"
   // The mark is set in a grotesque, not the terminal monospace.
   property string wordmarkFamily: "sans-serif"
+  // The terminal sets its digits in a sans, not a monospace.
+  property string digitFamily: "sans-serif"
 
   // ---- behaviour -----------------------------------------------------------
   // running=false stops the frame driver entirely. The last frame stays on
@@ -54,7 +56,10 @@ Item {
   // ---- derived geometry ----------------------------------------------------
   readonly property real buffer: Math.max(48, Math.min(width, height) * 0.0926)
   readonly property real cell: Math.max(24, (Math.min(width, height) - buffer * 2) / 10)
-  readonly property real baseSize: cell * 0.30
+  readonly property real baseSize: cell * 0.30   // chrome text
+  // The field's digits are far larger than the chrome, roughly half the
+  // cell pitch, as on the terminal.
+  readonly property real digitSize: cell * 0.46
   readonly property int cols: Math.max(1, Math.floor(width / cell))
   readonly property int rows: Math.max(1, Math.floor((height - buffer * 2) / cell))
   readonly property int cellCount: cols * rows
@@ -228,6 +233,7 @@ Item {
         }
         if (!s.shownBright) {
           it.label.color = colorSelect
+          it.label.styleColor = colorSelect
           s.shownBright = true
         }
         continue
@@ -289,7 +295,7 @@ Item {
       // transform. Distance-field text stays crisp under it.
       var nx = s.hx + s.ox
       var ny = s.hy + s.oy
-      var nop = s.selected ? 1 : 0.48 + s.heat * 0.52
+      var nop = s.selected ? 1 : 0.82 + s.heat * 0.18
       if (Math.abs(nx - s.wx) > 0.05 || Math.abs(ny - s.wy) > 0.05
           || Math.abs(s.mul - s.ws) > 0.002 || Math.abs(nop - s.wo) > 0.004) {
         it.x = nx
@@ -309,7 +315,9 @@ Item {
       }
       var bright = s.selected || s.heat > 0.45
       if (s.shownBright !== bright) {
-        it.label.color = bright ? colorSelect : colorFg
+        var ink = bright ? colorSelect : colorFg
+        it.label.color = ink
+        it.label.styleColor = ink
         s.shownBright = bright
       }
     }
@@ -542,9 +550,13 @@ Item {
       Text {
         id: digitText
         anchors.centerIn: parent
-        font.family: field.fontFamily
-        font.pixelSize: field.baseSize
+        font.family: field.digitFamily
+        font.pixelSize: field.digitSize
         color: field.colorFg
+        // Filled and outlined in the same colour, which thickens the glyph to
+        // the weight the terminal shows -- between regular and bold.
+        style: Text.Outline
+        styleColor: field.colorFg
         text: "0"
         renderType: Text.QtRendering
       }
@@ -566,60 +578,53 @@ Item {
   }
 
   // ---- header ----
-  // The terminal lays this out as one boxed track -- file name, then a run of
-  // ticks growing out of it, then the completion figure -- with the Lumon mark
-  // sitting outside the box to its right.
+  // One outlined box holding a tick track that lights from the left, with the
+  // file name in a knocked-out panel over it and the completion figure at the
+  // right. The Lumon mark sits outside the box, at the screen edge.
   Item {
     id: header
-    x: field.width * 0.05
-    y: field.buffer * 0.25
-    width: field.width * 0.9
-    height: field.buffer * 0.5
+    x: 0
+    y: field.buffer * 0.12
+    width: field.width
+    height: field.buffer * 0.76
 
-    readonly property real logoW: height * 0.88 * 2.05
+    readonly property real boxX: field.width * 0.05
+    readonly property real boxW: field.width * 0.9
+    readonly property real logoH: height * 1.3
+    readonly property real logoW: logoH * 2.05
+    readonly property real logoX: field.width - logoW - 12
+    readonly property real trackX1: logoX - 24
+    readonly property real inset: 3
 
     Rectangle {
-      id: track
-      x: 0
+      x: header.boxX
       y: 0
-      width: parent.width - parent.logoW - field.buffer * 0.16
-      height: parent.height
+      width: header.boxW
+      height: header.height
       color: "transparent"
       border.color: field.colorFg
       border.width: 2
-      radius: height * 0.16
     }
 
-    Text {
-      id: fileLabel
-      x: field.buffer * 0.16
-      anchors.verticalCenter: parent.verticalCenter
-      font.family: field.fontFamily
-      font.pixelSize: field.baseSize * 0.78
-      color: field.colorFg
-      text: field.fileName
-    }
-
-    // Only the lit ticks are drawn. The terminal shows bare track at 0%, not a
-    // row of dimmed placeholders.
+    // Only lit ticks are drawn; the terminal shows bare track at 0%.
     Item {
       id: meter
-      x: fileLabel.x + fileLabel.width + field.buffer * 0.14
-      anchors.verticalCenter: parent.verticalCenter
-      width: pctLabel.x - x - field.buffer * 0.14
-      height: parent.height * 0.54
+      x: header.boxX + header.inset
+      y: header.inset
+      width: header.trackX1 - x
+      height: header.height - header.inset * 2
       clip: true
 
-      readonly property real tickW: Math.max(2, field.baseSize * 0.13)
-      readonly property real gap: tickW * 1.35
-      readonly property int count: Math.max(1, Math.floor(width / (tickW + gap)))
+      readonly property real tickW: Math.max(2, header.height * 0.085)
+      readonly property real pitch: tickW * 2.25
+      readonly property int count: Math.max(1, Math.floor(width / pitch))
       readonly property int lit: Math.round(count * field.progress)
 
       Repeater {
         model: meter.lit
         delegate: Rectangle {
           required property int index
-          x: index * (meter.tickW + meter.gap)
+          x: index * meter.pitch
           width: meter.tickW
           height: meter.height
           color: field.colorFg
@@ -627,25 +632,49 @@ Item {
       }
     }
 
+    // File name, knocked out of the track so it stays readable once lit.
+    Rectangle {
+      id: namePanel
+      x: header.boxX + header.inset + 2
+      y: header.inset + 2
+      width: nameText.implicitWidth + header.height * 0.62
+      height: header.height - (header.inset + 2) * 2
+      color: field.colorBg
+      border.color: field.colorFg
+      border.width: 1.5
+
+      Text {
+        id: nameText
+        anchors.centerIn: parent
+        font.family: field.wordmarkFamily
+        font.pixelSize: header.height * 0.42
+        font.bold: true
+        color: field.colorFg
+        text: field.fileName
+      }
+    }
+
     Text {
       id: pctLabel
-      x: track.width - width - field.buffer * 0.16
+      x: header.trackX1 - width - 10
       anchors.verticalCenter: parent.verticalCenter
-      font.family: field.fontFamily
-      font.pixelSize: field.baseSize * 0.72
+      font.family: field.wordmarkFamily
+      font.pixelSize: header.height * 0.42
+      font.bold: true
       color: field.colorFg
+      style: Text.Outline
+      styleColor: field.colorBg
       text: Math.floor(field.progress * 100) + "% Complete"
     }
 
-    // The Lumon mark. The oval is not a frame around a globe -- it IS the
-    // globe: a wireframe of meridians and latitudes with the wordmark set
-    // across its middle.
+    // The Lumon mark: the oval IS the globe -- meridians and latitudes, with
+    // the wordmark across its middle.
     Item {
       id: logo
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      height: parent.height * 0.88
-      width: parent.logoW
+      x: header.logoX
+      y: (header.height - header.logoH) / 2
+      width: header.logoW
+      height: header.logoH
 
       Canvas {
         id: globe
@@ -656,7 +685,7 @@ Item {
           var ctx = getContext("2d")
           ctx.reset()
 
-          var lw = Math.max(1, height * 0.042)
+          var lw = Math.max(1, height * 0.045)
           var cx = width / 2
           var cy = height / 2
           var a = cx - lw

@@ -397,6 +397,7 @@ Item {
 
         // URW's Helvetica clone, for the Lumon mark.
         wordmarkFamily: "Nimbus Sans"
+        digitFamily: "Nimbus Sans"
 
         onDoubleClicked: function(button) {
           if (button === Qt.RightButton) root.openThemeSwitcher()
